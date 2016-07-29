@@ -15,6 +15,7 @@
 #import "OTTextChatKitBundle.h"
 #import "GCDHelper.h"
 #import "UIViewController+Helper.h"
+#import "OTTestingInfo.h"
 
 #import "OTTextChatView_UserInterface.h"
 #import "OTTextChatUICustomizator_Private.h"
@@ -176,10 +177,12 @@ static CGFloat StatusBarHeight = 20.0;
 #pragma mark - Public methods
 + (instancetype)textChatView {
     
-    [OTKLogger analyticsWithClientVersion:KLogClientVersion
-                                   source:[[NSBundle mainBundle] bundleIdentifier]
-                              componentId:kLogComponentIdentifier
-                                     guid:[[NSUUID UUID] UUIDString]];
+    if (![OTTestingInfo isTesting]) {
+        [OTKLogger analyticsWithClientVersion:KLogClientVersion
+                                       source:[[NSBundle mainBundle] bundleIdentifier]
+                                  componentId:kLogComponentIdentifier
+                                         guid:[[NSUUID UUID] UUIDString]];
+    }
     
     NSBundle *textChatViewBundle = [OTTextChatKitBundle textChatKitBundle];
     return (OTTextChatView *)[[textChatViewBundle loadNibNamed:@"OTTextChatView"
@@ -208,12 +211,12 @@ static CGFloat StatusBarHeight = 20.0;
 }
 
 - (void)show {
-    
     if (self.isShown) return;
     
     UIViewController *topViewController = [UIViewController topViewControllerWithRootViewController];
     if (topViewController) {
         [topViewController.view addSubview:self];
+        [OTKLogger logEventAction:KLogActionOpen variation:KLogVariationSuccess completion:nil];
     }
 }
 
@@ -221,6 +224,7 @@ static CGFloat StatusBarHeight = 20.0;
     if (self.isShown) {
         [self.sendButton setTitle:@"Send" forState:UIControlStateNormal];
         [self removeFromSuperview];
+        [OTKLogger logEventAction:KLogActionClose variation:KLogVariationSuccess completion:nil];
     }
 }
 
@@ -300,7 +304,7 @@ static CGFloat StatusBarHeight = 20.0;
     OTTextChatTableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellId
                                                                   forIndexPath:indexPath];
     [cell updateCellFromTextChat:textChat
-                    customizator:self.customizator];
+                      customizer:self.customizator];
     return cell;
 }
 
