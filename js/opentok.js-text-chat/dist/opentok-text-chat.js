@@ -34,7 +34,7 @@
 
   var _logEventData = {
     // vars for the analytics logs. Internal use
-    clientVersion: 'js-vsol-1.0.0',
+    clientVersion: 'js-vsol-2.0.0',
     componentId: 'textChatAccPack',
     name: 'guidTextChatAccPack',
     actionInitialize: 'Init',
@@ -42,8 +42,8 @@
     actionEnd: 'End',
     actionOpen: 'OpenTC',
     actionClose: 'CloseTC',
-    actionSendMessage: 'Send Msg',
-    actionReceiveMessage: 'Receive Msg',
+    actionSendMessage: 'SendMessage',
+    actionReceiveMessage: 'ReceiveMessage',
     actionSetMaxLength: 'SetMaxLength',
     variationAttempt: 'Attempt',
     variationError: 'Failure',
@@ -94,6 +94,8 @@
   var _composer;
   var _lastMessage;
   var _newMessages;
+  var _sentMessageHistory = [];
+  var _remoteParticipant = false;
 
   // Reference to Accelerator Pack Common Layer
   var _accPack;
@@ -104,22 +106,25 @@
 
   // Private methods
   var renderUILayout = function () {
+    var deliveryMessage =
+      _this.options.waitingMessage || 'Messages will be delivered once your contact arrives';
     /* eslint-disable max-len, prefer-template */
     return [
-      '<div class="wms-widget-wrapper">',
-      '<div class="wms-widget-chat wms-widget-extras" id="chatContainer">',
-      '<div class="wms-messages-header hidden" id="chatHeader">',
+      '<div class="ots-text-chat-container">',
+      '<div class="ots-text-chat">',
+      '<div class="ots-messages-header ots-hidden" id="chatHeader">',
       '<span>Chat with</span>',
       '</div>',
-      '<div id="wmsChatWrap">',
-      '<div class="wms-messages-holder" id="messagesHolder">',
-      '<div class="wms-message-item wms-message-sent">',
+      '<div id="otsChatWrap">',
+      '<div class="ots-messages-holder" id="messagesHolder">',
+      '<div class="ots-messages-alert ots-hidden" id="messagesWaiting">' + deliveryMessage + '</div>',
+      '<div class="ots-message-item ots-message-sent">',
       '</div>',
       '</div>',
-      '<div class="wms-send-message-box">',
-      '<input type="text" maxlength=' + _this.options.limitCharacterMessage + ' class="wms-message-input" placeholder="Enter your message here" id="messageBox">',
-      '<button class="wms-icon-check" id="sendMessage" type="submit"></button>',
-      '<div class="wms-character-count"><span><span id="characterCount">0</span>/' + _this.options.limitCharacterMessage + ' characters</span></div>',
+      '<div class="ots-send-message-box">',
+      '<input type="text" maxlength=' + _this.options.limitCharacterMessage + ' class="ots-message-input" placeholder="Enter your message here" id="messageBox">',
+      '<button class="ots-icon-check" id="sendMessage" type="submit"></button>',
+      '<div class="ots-character-count"><span><span id="characterCount">0</span>/' + _this.options.limitCharacterMessage + ' characters</span></div>',
       '</div>',
       '</div>',
       '</div>',
@@ -147,9 +152,9 @@
     /* eslint-disable max-len, prefer-template */
     var bubble = [
       '<div class="' + message.messageClass + '" >',
-      '<div class="wms-user-name-initial"> ' + message.username[0] + '</div>',
-      '<div class="wms-item-timestamp"> ' + message.username + ', <span data-livestamp=" ' + new Date(message.time) + '" </span></div>',
-      '<div class="wms-item-text">',
+      '<div class="ots-user-name-initial"> ' + message.username[0] + '</div>',
+      '<div class="ots-item-timestamp"> ' + message.username + ', <span data-livestamp=" ' + new Date(message.time) + '" </span></div>',
+      '<div class="ots-item-text">',
       '<span> ' + message.message + '</span>',
       '</div>',
       '</div>'
@@ -160,7 +165,9 @@
 
   var _renderChatMessage = function (messageSenderId, messageSenderAlias, message, sentOn) {
 
-    var sentByClass = _sender.id === messageSenderId ? 'wms-message-item wms-message-sent' : 'wms-message-item';
+    var sentByClass = _sender.id === messageSenderId ?
+      'ots-message-item ots-message-sent' :
+      'ots-message-item';
 
     var view = _getBubbleHtml({
       username: messageSenderAlias,
@@ -178,7 +185,7 @@
 
   var _handleMessageSent = function (data) {
     if (_shouldAppendMessage(data)) {
-      $('.wms-item-text').last().append(['<span>', data.message, '</span>'].join(''));
+      $('.ots-item-text').last().append(['<span>', data.message, '</span>'].join(''));
       var chatholder = $(_newMessages);
       chatholder[0].scrollTop = chatholder[0].scrollHeight;
       _cleanComposer();
@@ -201,8 +208,28 @@
     _triggerEvent('errorSendingMessage', error);
   };
 
+  var _showWaitingMessage = function () {
+    var el = document.getElementById('messagesWaiting');
+    el && el.classList.remove('ots-hidden');
+  };
+
+  var _hideWaitingMessage = function () {
+    var el = document.getElementById('messagesWaiting');
+    el && el.classList.add('ots-hidden');
+  };
+
   var _sendMessage = function (recipient, message) {
+
     var deferred = new $.Deferred();
+
+    _sentMessageHistory.push({ recipient: recipient, message: message });
+    if (!_remoteParticipant) {
+      _showWaitingMessage();
+      deferred.resolve();
+    } else {
+      _hideWaitingMessage();
+    }
+
     var messageData = {
       text: message,
       sender: {
@@ -285,6 +312,10 @@
   };
 
   var _setupUI = function () {
+
+    // Add INITIALIZE success log event
+    _log(_logEventData.actionInitialize, _logEventData.variationAttempt);
+
     var parent = document.querySelector(_this.options.textChatContainer) || document.body;
 
     var chatView = document.createElement('section');
@@ -296,6 +327,11 @@
 
     _composer.onkeyup = function updateCharCounter() {
       $('#characterCount').text(_composer.value.length);
+      if (_composer.value.length !== 0) {
+        $('.ots-icon-check').addClass('active');
+      } else {
+        $('.ots-icon-check').removeClass('active');
+      }
     };
 
     _composer.onkeydown = function controlComposerInput(event) {
@@ -316,10 +352,11 @@
   };
 
   var _onIncomingMessage = function (signal) {
+    _log(_logEventData.actionReceiveMessage, _logEventData.variationAttempt);
     var data = JSON.parse(signal.data);
 
     if (_shouldAppendMessage(data)) {
-      $('.wms-item-text').last().append(['<span>', data.text, '</span>'].join(''));
+      $('.ots-item-text').last().append(['<span>', data.text, '</span>'].join(''));
     } else {
       _renderChatMessage(data.sender.id, data.sender.alias, data.text, data.sentOn);
     }
@@ -340,18 +377,49 @@
     }
   };
 
+  var _deliverUnsentMessages = function () {
+    _sentMessageHistory.forEach(function (message) {
+      _sendMessage(message.recipient, message.message);
+    });
+    _sentMessageHistory = [];
+  };
+
+  var _handleReadySignal = function (event) {
+    if (event.from.connectionId !== _session.connection.connectionId) {
+      _remoteParticipant = true;
+      _deliverUnsentMessages();
+    }
+  };
+
+  /**
+   * Send a signal to the other parties, letting them know that we are ready to receive
+   * messages and would like to recieve their message history
+   */
+  var _signalReady = function () {
+    var readySignal = { type: 'text-chat-ready', data: JSON.stringify({ ready: true }) };
+    _session.on('signal:text-chat-ready', _handleReadySignal);
+    _session.signal(readySignal, function (error) {
+      if (error) {
+        console.log('Error sending ready signal', error);
+      }
+    });
+  };
+
   var _initTextChat = function () {
+    _log(_logEventData.actionStart, _logEventData.variationAttempt);
     _enabled = true;
     _displayed = true;
     _initialized = true;
     _setupUI();
     _triggerEvent('showTextChat');
     _session.on('signal:text-chat', _handleTextChat);
+    _signalReady();
     _log(_logEventData.actionStart, _logEventData.variationSuccess);
   };
 
   var _showTextChat = function () {
-    document.querySelector(_this.options.textChatContainer).classList.remove('hidden');
+    _log(_logEventData.actionOpen, _logEventData.variationAttempt);
+    document.querySelector(_this.options.textChatContainer).classList.remove('ots-hidden');
     _displayed = true;
     _triggerEvent('showTextChat');
 
@@ -360,7 +428,9 @@
   };
 
   var _hideTextChat = function () {
-    document.querySelector(_this.options.textChatContainer).classList.add('hidden');
+    _log(_logEventData.actionClose, _logEventData.variationAttempt);
+    _log(_logEventData.actionEnd, _logEventData.variationAttempt);
+    document.querySelector(_this.options.textChatContainer).classList.add('ots-hidden');
     _displayed = false;
     _triggerEvent('hideTextChat');
 
@@ -374,7 +444,7 @@
     var feedControls = document.querySelector(_this.options.controlsContainer);
 
     var el = document.createElement('div');
-    el.innerHTML = '<div class="video-control circle text-chat enabled" id="enableTextChat"></div>';
+    el.innerHTML = '<div class="ots-video-control circle text-chat enabled" id="enableTextChat"></div>';
 
     var enableTextChat = el.firstChild;
     feedControls.appendChild(enableTextChat);
@@ -425,7 +495,8 @@
     return _.defaults(_.omit(options, ['accPack', '_sender']), {
       limitCharacterMessage: 160,
       controlsContainer: '#feedControls',
-      textChatContainer: '#chatContainer'
+      textChatContainer: '#chatContainer',
+      alwaysOpen: false
     });
   };
 
@@ -440,25 +511,63 @@
     _accPack && _accPack.registerEvents(events);
   };
 
+  var _handleConnectionCreated = function (event) {
+    if (event && event.connection.connectionId !== _session.connection.connectionId) {
+      _remoteParticipant = true;
+      _hideWaitingMessage();
+    }
+  };
+
+  var _handleStreamCreated = function (event) {
+    if (event && event.stream.connection.connectionId !== _session.connection.connectionId) {
+      _remoteParticipant = true;
+      _hideWaitingMessage();
+    }
+  };
+
+  var _handleStreamDestroyed = function () {
+    if (_session.streams.length() < 2) {
+      _remoteParticipant = false;
+    }
+  };
+
   var _addEventListeners = function () {
 
     if (_accPack) {
+      _accPack.registerEventListener('streamCreated', _handleStreamCreated);
+      _accPack.registerEventListener('streamDestroyed', _handleStreamDestroyed);
 
       _accPack.registerEventListener('startCall', function () {
-        if (_controlAdded) {
-          document.querySelector('#enableTextChat').classList.remove('hidden');
-        } else {
-          _appendControl();
+        if (!_this.options.alwaysOpen) {
+          if (_controlAdded) {
+            document.querySelector('#enableTextChat').classList.remove('ots-hidden');
+          } else {
+            _appendControl();
+          }
         }
       });
 
       _accPack.registerEventListener('endCall', function () {
-        document.getElementById('enableTextChat').classList.add('hidden');
-        if (_displayed) {
-          _hideTextChat();
+        if (!_this.options.alwaysOpen) {
+          document.getElementById('enableTextChat').classList.add('ots-hidden');
+          if (_displayed) {
+            _hideTextChat();
+          }
         }
       });
+    } else {
+      _session.on('streamCreated', _handleStreamCreated);
+      _session.on('streamDestroyed', _handleStreamDestroyed);
     }
+
+    _session.on('connectionCreated', _handleConnectionCreated);
+
+    /**
+     * We need to check for remote participants in case we were the last party to join and
+     * the session event fired before the text chat component was initialized.
+     */
+    _handleStreamCreated();
+
   };
 
   // Constructor
@@ -477,7 +586,11 @@
       _log(_logEventData.actionSetMaxLength, _logEventData.variationSuccess);
     }
 
-    _appendControl();
+    if (_this.options.alwaysOpen) {
+      _initTextChat();
+    } else {
+      _appendControl();
+    }
     _registerEvents();
     _addEventListeners();
   };
